@@ -81,68 +81,96 @@ def main():
         with col2:
             st.subheader("🔄 Transaction Extraction")
             
-            if st.button("Extract Transactions", type="primary"):
-                try:
-                    # Show progress
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
-                    
-                    status_text.text("🔍 Analyzing image...")
-                    progress_bar.progress(25)
-                    
-                    # Get extractor
-                    extractor = get_extractor()
-                    
-                    status_text.text("🤖 Processing with AI...")
-                    progress_bar.progress(50)
-                    
-                    # Convert image to bytes
-                    img_bytes = io.BytesIO()
-                    image.save(img_bytes, format='PNG')
-                    img_bytes = img_bytes.getvalue()
-                    
-                    status_text.text("📊 Extracting transaction data...")
-                    progress_bar.progress(75)
-                    
-                    # Extract transactions
-                    transactions = extractor.extract_transactions(img_bytes)
-                    
-                    status_text.text("✅ Complete!")
-                    progress_bar.progress(100)
-                    
-                    # Clear progress indicators
-                    progress_bar.empty()
-                    status_text.empty()
-                    
-                    if transactions:
-                        st.success(f"🎉 Successfully extracted {len(transactions)} transactions!")
+            # Check if transactions are already extracted
+            if 'extracted_transactions' in st.session_state and st.session_state.get('extraction_completed', False):
+                st.success(f"✅ {len(st.session_state['extracted_transactions'])} transactions already extracted!")
+                if st.button("🔄 Re-extract Transactions", type="secondary"):
+                    # Clear existing data and re-extract
+                    if 'extracted_transactions' in st.session_state:
+                        del st.session_state['extracted_transactions']
+                    if 'extraction_completed' in st.session_state:
+                        del st.session_state['extraction_completed']
+                    if 'tally_xml' in st.session_state:
+                        del st.session_state['tally_xml']
+                    st.rerun()
+            else:
+                if st.button("Extract Transactions", type="primary"):
+                    try:
+                        # Show progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
                         
-                        # Display results
-                        st.subheader("📋 Extracted Transactions")
+                        status_text.text("🔍 Analyzing image...")
+                        progress_bar.progress(25)
                         
-                        # Create tabs for different views
-                        tab1, tab2, tab3, tab4 = st.tabs(["📊 Table View", "📄 JSON View", "🔄 Tally XML", "💾 Download"])
+                        # Get extractor
+                        extractor = get_extractor()
                         
-                        with tab1:
-                            # Display as dataframe
-                            import pandas as pd
-                            df = pd.DataFrame(transactions)
-                            st.dataframe(df, use_container_width=True)
+                        status_text.text("🤖 Processing with AI...")
+                        progress_bar.progress(50)
+                        
+                        # Convert image to bytes
+                        img_bytes = io.BytesIO()
+                        image.save(img_bytes, format='PNG')
+                        img_bytes = img_bytes.getvalue()
+                        
+                        status_text.text("📊 Extracting transaction data...")
+                        progress_bar.progress(75)
+                        
+                        # Extract transactions
+                        transactions = extractor.extract_transactions(img_bytes)
+                        
+                        status_text.text("✅ Complete!")
+                        progress_bar.progress(100)
+                        
+                        # Store transactions in session state for persistence
+                        st.session_state['extracted_transactions'] = transactions
+                        st.session_state['extraction_completed'] = True
+                        
+                        # Clear progress indicators
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        if transactions:
+                            st.success(f"🎉 Successfully extracted {len(transactions)} transactions!")
+                        else:
+                            st.warning("⚠️ No transactions found in the image. Please ensure the image is clear and contains transaction data.")
                             
-                            # Summary statistics
-                            if len(transactions) > 0:
-                                st.subheader("📈 Summary")
-                                col_a, col_b, col_c = st.columns(3)
-                                
-                                total_debits = sum(float(t.get('debit_amount', 0) or 0) for t in transactions)
-                                total_credits = sum(float(t.get('credit_amount', 0) or 0) for t in transactions)
-                                
-                                with col_a:
-                                    st.metric("Total Transactions", len(transactions))
-                                with col_b:
-                                    st.metric("Total Debits", f"₹{total_debits:,.2f}")
-                                with col_c:
-                                    st.metric("Total Credits", f"₹{total_credits:,.2f}")
+                    except Exception as e:
+                        st.error(f"❌ Error processing image: {str(e)}")
+                        st.error("Please try again with a different image or check if the image is clear and readable.")
+        
+        # Display extracted transactions if available
+        if 'extracted_transactions' in st.session_state and st.session_state.get('extraction_completed', False):
+            transactions = st.session_state['extracted_transactions']
+            
+            if transactions:
+                st.divider()
+                st.subheader("📋 Extracted Transactions")
+                
+                # Create tabs for different views
+                tab1, tab2, tab3, tab4 = st.tabs(["📊 Table View", "📄 JSON View", "🔄 Tally XML", "💾 Download"])
+                
+                with tab1:
+                    # Display as dataframe
+                    import pandas as pd
+                    df = pd.DataFrame(transactions)
+                    st.dataframe(df, use_container_width=True)
+                            
+                    # Summary statistics
+                    if len(transactions) > 0:
+                        st.subheader("📈 Summary")
+                        col_a, col_b, col_c = st.columns(3)
+                        
+                        total_debits = sum(float(t.get('debit_amount', 0) or 0) for t in transactions)
+                        total_credits = sum(float(t.get('credit_amount', 0) or 0) for t in transactions)
+                        
+                        with col_a:
+                            st.metric("Total Transactions", len(transactions))
+                        with col_b:
+                            st.metric("Total Debits", f"₹{total_debits:,.2f}")
+                        with col_c:
+                            st.metric("Total Credits", f"₹{total_credits:,.2f}")
                         
                         with tab2:
                             # Display as JSON
@@ -278,13 +306,6 @@ def main():
                                     - Move amounts from Suspense to appropriate ledgers
                                     - Verify running balance matches your bank statement
                                     """)
-                    
-                    else:
-                        st.warning("⚠️ No transactions found in the image. Please ensure the image is clear and contains transaction data.")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error processing image: {str(e)}")
-                    st.error("Please try again with a different image or check if the image is clear and readable.")
 
     # Instructions and tips
     with st.expander("📖 How to use this app"):
