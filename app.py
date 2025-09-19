@@ -4,6 +4,7 @@ import os
 from PIL import Image
 import io
 from transaction_extractor import TransactionExtractor
+from tally_xml_generator import TallyXMLGenerator
 
 # Set page configuration
 st.set_page_config(
@@ -26,6 +27,32 @@ def main():
     if not api_key:
         st.error("⚠️ GEMINI_API_KEY environment variable not found. Please set your Gemini API key.")
         st.stop()
+    
+    # Tally Configuration Section
+    st.subheader("⚙️ Tally Configuration")
+    col_config1, col_config2 = st.columns(2)
+    
+    with col_config1:
+        company_name = st.text_input(
+            "Company Name (as in Tally)",
+            placeholder="Enter your company name exactly as it appears in Tally",
+            help="This should match your company name in Tally exactly"
+        )
+    
+    with col_config2:
+        bank_ledger_name = st.text_input(
+            "Bank Ledger Name", 
+            placeholder="e.g., HDFC Bank, SBI Current Account",
+            help="Name of the bank account ledger in your Tally"
+        )
+    
+    # Show configuration status
+    if company_name and bank_ledger_name:
+        st.success(f"✅ Configuration set: {company_name} | {bank_ledger_name}")
+    else:
+        st.info("💡 Please enter company name and bank ledger name to proceed with XML generation")
+    
+    st.divider()
     
     # File uploader
     uploaded_file = st.file_uploader(
@@ -94,7 +121,7 @@ def main():
                         st.subheader("📋 Extracted Transactions")
                         
                         # Create tabs for different views
-                        tab1, tab2, tab3 = st.tabs(["📊 Table View", "📄 JSON View", "💾 Download"])
+                        tab1, tab2, tab3, tab4 = st.tabs(["📊 Table View", "📄 JSON View", "🔄 Tally XML", "💾 Download"])
                         
                         with tab1:
                             # Display as dataframe
@@ -123,29 +150,134 @@ def main():
                             st.code(json_str, language="json")
                         
                         with tab3:
+                            # Tally XML Generation
+                            if company_name and bank_ledger_name:
+                                st.subheader("🔄 Generate Tally XML")
+                                
+                                try:
+                                    # Initialize XML generator
+                                    xml_generator = TallyXMLGenerator(company_name, bank_ledger_name)
+                                    
+                                    # Validate data before generation
+                                    validation_result = xml_generator.validate_xml_structure(transactions)
+                                    
+                                    # Show validation results
+                                    if validation_result['valid']:
+                                        st.success(f"✅ Ready to generate XML for {validation_result['transaction_count']} transactions")
+                                        
+                                        if validation_result['warnings']:
+                                            with st.expander("⚠️ Validation Warnings"):
+                                                for warning in validation_result['warnings']:
+                                                    st.warning(warning)
+                                        
+                                        # Generate XML button
+                                        if st.button("🔄 Generate Tally XML", type="primary"):
+                                            with st.spinner("Generating Tally XML..."):
+                                                xml_content = xml_generator.generate_xml(transactions)
+                                                
+                                                st.success("✅ Tally XML generated successfully!")
+                                                
+                                                # Display XML preview (first 2000 chars)
+                                                st.subheader("📄 XML Preview")
+                                                preview_xml = xml_content[:2000]
+                                                if len(xml_content) > 2000:
+                                                    preview_xml += "\n... (truncated, full XML available in download)"
+                                                
+                                                st.code(preview_xml, language="xml")
+                                                
+                                                # Store XML in session state for download
+                                                st.session_state['tally_xml'] = xml_content
+                                                
+                                                # Quick info about the XML
+                                                st.info(f"""
+                                                **XML Details:**
+                                                - Company: {company_name}
+                                                - Bank Ledger: {bank_ledger_name}
+                                                - Suspense Ledger: Suspense (auto-created if needed)
+                                                - Transactions: {len(transactions)}
+                                                - XML Size: {len(xml_content)} characters
+                                                """)
+                                    else:
+                                        st.error("❌ Validation failed. Please fix the following errors:")
+                                        for error in validation_result['errors']:
+                                            st.error(f"• {error}")
+                                        
+                                        if validation_result['warnings']:
+                                            st.warning("Additional warnings:")
+                                            for warning in validation_result['warnings']:
+                                                st.warning(f"• {warning}")
+                                                
+                                except Exception as e:
+                                    st.error(f"❌ Error generating XML: {str(e)}")
+                            else:
+                                st.warning("⚠️ Please configure company name and bank ledger name in the settings above to generate Tally XML")
+                        
+                        with tab4:
                             # Download options
                             st.subheader("💾 Download Options")
                             
-                            # JSON download
-                            json_str = json.dumps(transactions, indent=2)
-                            st.download_button(
-                                label="📄 Download as JSON",
-                                data=json_str,
-                                file_name="bank_transactions.json",
-                                mime="application/json"
-                            )
+                            col_dl1, col_dl2, col_dl3 = st.columns(3)
                             
-                            # CSV download
-                            if transactions:
-                                import pandas as pd
-                                df = pd.DataFrame(transactions)
-                                csv = df.to_csv(index=False)
+                            with col_dl1:
+                                # JSON download
+                                json_str = json.dumps(transactions, indent=2)
                                 st.download_button(
-                                    label="📊 Download as CSV",
-                                    data=csv,
-                                    file_name="bank_transactions.csv",
-                                    mime="text/csv"
+                                    label="📄 Download JSON",
+                                    data=json_str,
+                                    file_name="bank_transactions.json",
+                                    mime="application/json"
                                 )
+                            
+                            with col_dl2:
+                                # CSV download
+                                if transactions:
+                                    import pandas as pd
+                                    df = pd.DataFrame(transactions)
+                                    csv = df.to_csv(index=False)
+                                    st.download_button(
+                                        label="📊 Download CSV",
+                                        data=csv,
+                                        file_name="bank_transactions.csv",
+                                        mime="text/csv"
+                                    )
+                            
+                            with col_dl3:
+                                # Tally XML download
+                                if 'tally_xml' in st.session_state:
+                                    st.download_button(
+                                        label="🔄 Download Tally XML",
+                                        data=st.session_state['tally_xml'],
+                                        file_name="tally_import.xml",
+                                        mime="application/xml"
+                                    )
+                                else:
+                                    st.info("Generate XML first in Tally XML tab")
+                            
+                            # Instructions for XML import
+                            if 'tally_xml' in st.session_state:
+                                st.divider()
+                                with st.expander("📖 How to import XML into Tally"):
+                                    st.markdown("""
+                                    ### Steps to import into Tally:
+                                    
+                                    1. **Open Tally** and select your company
+                                    2. **Go to Gateway of Tally** → Import → XML Files
+                                    3. **Browse and select** the downloaded XML file
+                                    4. **Click Import** to process the transactions
+                                    5. **Verify** the imported transactions in your vouchers
+                                    
+                                    ### Important Notes:
+                                    - 🏢 Make sure the company name matches exactly
+                                    - 💰 All transactions will be posted to "Suspense" ledger
+                                    - ✅ The Suspense ledger will be created automatically if it doesn't exist
+                                    - 📝 You can later transfer amounts from Suspense to proper ledgers
+                                    - 🔄 Always backup your Tally data before importing
+                                    
+                                    ### After Import:
+                                    - Review transactions in Receipt/Payment vouchers
+                                    - Move amounts from Suspense to appropriate ledgers
+                                    - Verify running balance matches your bank statement
+                                    """)
                     
                     else:
                         st.warning("⚠️ No transactions found in the image. Please ensure the image is clear and contains transaction data.")
