@@ -8,8 +8,8 @@ from tally_xml_generator import TallyXMLGenerator
 
 # Set page configuration
 st.set_page_config(
-    page_title="Bank Statement Transaction Extractor",
-    page_icon="🏦",
+    page_title="Tally ERP Automation Suite",
+    page_icon="🏛️",
     layout="wide"
 )
 
@@ -19,8 +19,8 @@ def get_extractor():
     return TransactionExtractor()
 
 def main():
-    st.title("🏦 Bank Statement Transaction Extractor")
-    st.markdown("Upload bank statement images in PNG format to extract transaction data using AI")
+    st.title("🏛️ Tally ERP Automation Suite")
+    st.markdown("Comprehensive automation solution for importing bank statements, invoices, and GST returns into Tally")
     
     # Check if API key is available
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -28,9 +28,9 @@ def main():
         st.error("⚠️ GEMINI_API_KEY environment variable not found. Please set your Gemini API key.")
         st.stop()
     
-    # Tally Configuration Section
-    st.subheader("⚙️ Tally Configuration")
-    col_config1, col_config2 = st.columns(2)
+    # Global Configuration Section
+    st.subheader("⚙️ Company Configuration")
+    col_config1, col_config2, col_config3 = st.columns(3)
     
     with col_config1:
         company_name = st.text_input(
@@ -40,25 +40,65 @@ def main():
         )
     
     with col_config2:
+        company_state = st.selectbox(
+            "Company State",
+            options=[
+                "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa", "Gujarat", "Haryana",
+                "Himachal Pradesh", "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur",
+                "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
+                "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal", "Delhi", "Puducherry"
+            ],
+            index=None,
+            placeholder="Select your company's state",
+            help="Required for accurate GST bifurcation (CGST+SGST vs IGST)"
+        )
+    
+    with col_config3:
         bank_ledger_name = st.text_input(
             "Bank Ledger Name", 
             placeholder="e.g., HDFC Bank, SBI Current Account",
-            help="Name of the bank account ledger in your Tally"
+            help="Name of the bank account ledger in your Tally (for bank statements)"
         )
     
     # Show configuration status
-    if company_name and bank_ledger_name:
-        st.success(f"✅ Configuration set: {company_name} | {bank_ledger_name}")
+    config_status = []
+    if company_name:
+        config_status.append(f"Company: {company_name}")
+    if company_state:
+        config_status.append(f"State: {company_state}")
+    if bank_ledger_name:
+        config_status.append(f"Bank: {bank_ledger_name}")
+    
+    if config_status:
+        st.success(f"✅ Configuration: {' | '.join(config_status)}")
     else:
-        st.info("💡 Please enter company name and bank ledger name to proceed with XML generation")
+        st.info("💡 Please configure company details above to proceed")
     
     st.divider()
+    
+    # Create tabs for different document types
+    tab_bank, tab_invoice, tab_gst = st.tabs(["🏦 Bank Statements", "📄 Invoices", "📊 GST Returns"])
+    
+    with tab_bank:
+        process_bank_statements(company_name, bank_ledger_name)
+    
+    with tab_invoice:
+        process_invoices(company_name, company_state)
+    
+    with tab_gst:
+        process_gst_returns(company_name, company_state)
+
+def process_bank_statements(company_name: str, bank_ledger_name: str):
+    """Handle bank statement processing."""
+    st.subheader("🏦 Bank Statement Processing")
+    st.markdown("Upload bank statement images (PNG) to extract transaction data and generate Tally XML")
     
     # File uploader
     uploaded_file = st.file_uploader(
         "Choose a PNG bank statement image",
         type=['png'],
-        help="Upload a clear image of your bank statement in PNG format"
+        help="Upload a clear image of your bank statement in PNG format",
+        key="bank_statement_uploader"
     )
     
     if uploaded_file is not None:
@@ -307,8 +347,8 @@ def main():
                                     - Verify running balance matches your bank statement
                                     """)
 
-    # Instructions and tips
-    with st.expander("📖 How to use this app"):
+    # Instructions and tips for bank statements
+    with st.expander("📖 How to use Bank Statement Processing"):
         st.markdown("""
         ### Instructions:
         1. **Upload Image**: Select a PNG image of your bank statement
@@ -329,6 +369,109 @@ def main():
         - **Debit Amount**: Money debited from account
         - **Credit Amount**: Money credited to account  
         - **Running Balance**: Account balance after transaction
+        """)
+
+def process_invoices(company_name: str, company_state: str | None):
+    """Handle invoice processing."""
+    st.subheader("📄 Invoice Processing")
+    st.markdown("Upload invoice images (PNG/PDF) to extract transaction data and generate purchase/sales vouchers")
+    
+    if not company_name or not company_state:
+        st.warning("⚠️ Please configure company name and state in the settings above")
+        return
+    
+    # Invoice type selection
+    invoice_type = st.selectbox(
+        "Invoice Type",
+        options=["Purchase Invoice", "Sales Invoice"],
+        help="Select whether this is a purchase or sales invoice"
+    )
+    
+    # File uploader for invoices
+    uploaded_files = st.file_uploader(
+        "Choose invoice files",
+        type=['png', 'jpg', 'jpeg', 'pdf'],
+        accept_multiple_files=True,
+        help="Upload clear images or PDFs of your invoices",
+        key="invoice_uploader"
+    )
+    
+    if uploaded_files:
+        st.info(f"📁 {len(uploaded_files)} file(s) uploaded. Processing will be available soon.")
+        
+        # Placeholder for invoice processing
+        with st.expander("🔮 Coming Soon - Invoice Processing Features"):
+            st.markdown("""
+            **Planned Features:**
+            - 🔍 AI-powered invoice data extraction
+            - 📊 Automatic GST calculation and bifurcation
+            - 🏢 Vendor/customer master creation
+            - 📦 Item master management
+            - 💰 Accurate debit/credit mapping
+            - 🔄 Purchase/Sales voucher XML generation
+            - 📝 Descriptive ledger naming (Local Purchase 18%, Input IGST 18%, etc.)
+            """)
+    
+    # Instructions
+    with st.expander("📖 How to use Invoice Processing"):
+        st.markdown("""
+        ### Coming Soon:
+        - Support for both purchase and sales invoices
+        - Automatic GST bifurcation based on company state
+        - Smart ledger creation with descriptive names
+        - Masters import XML for new vendors/customers/items
+        """)
+
+def process_gst_returns(company_name: str, company_state: str | None):
+    """Handle GST return JSON processing."""
+    st.subheader("📊 GST Return Processing")
+    st.markdown("Upload GST return JSON files (GSTR2B/2A/R1) to import bulk transactions into Tally")
+    
+    if not company_name or not company_state:
+        st.warning("⚠️ Please configure company name and state in the settings above")
+        return
+    
+    # GST return type selection
+    gst_return_type = st.selectbox(
+        "GST Return Type",
+        options=["GSTR2B", "GSTR2A", "GSTR1"],
+        help="Select the type of GST return JSON file"
+    )
+    
+    # File uploader for GST returns
+    uploaded_files = st.file_uploader(
+        "Choose GST return JSON files",
+        type=['json'],
+        accept_multiple_files=True,
+        help="Upload JSON files downloaded from GST portal",
+        key="gst_return_uploader"
+    )
+    
+    if uploaded_files:
+        st.info(f"📁 {len(uploaded_files)} JSON file(s) uploaded. Processing will be available soon.")
+        
+        # Placeholder for GST processing
+        with st.expander("🔮 Coming Soon - GST Return Processing Features"):
+            st.markdown("""
+            **Planned Features:**
+            - ⚡ Ultra-fast JSON parsing (milliseconds vs seconds)
+            - 📈 Bulk transaction processing (hundreds at once)
+            - 🏢 Automatic vendor/customer master creation
+            - 💰 Accurate GST ledger mapping
+            - 📊 Purchase/Sales voucher generation
+            - 🔄 Complete masters import XML
+            - 📝 Government-validated data accuracy
+            """)
+    
+    # Instructions
+    with st.expander("📖 How to use GST Return Processing"):
+        st.markdown("""
+        ### Coming Soon:
+        - Process GSTR2B for purchase data
+        - Process GSTR2A for input tax credit
+        - Process GSTR1 for sales data
+        - Lightning-fast bulk import capability
+        - Automatic ledger and master creation
         """)
 
 if __name__ == "__main__":
