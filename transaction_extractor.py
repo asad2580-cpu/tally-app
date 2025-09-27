@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
+from PIL import Image
+import io
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -38,36 +40,27 @@ class TransactionExtractor:
             List of transaction dictionaries
         """
         try:
-            # Prepare the prompt for transaction extraction
-            prompt = """
-            You are an expert at reading bank statements. Analyze this bank statement image and extract all transaction data.
+            # Streamlined prompt for faster processing
+            prompt = """Extract all transactions from this bank statement as JSON array.
 
-            For each transaction, extract the following information:
-            - date: Transaction date (format as YYYY-MM-DD if possible, otherwise keep original format)
-            - narration: Transaction description/details
-            - debit_amount: Amount debited (if any) - just the number without currency symbol
-            - credit_amount: Amount credited (if any) - just the number without currency symbol  
-            - running_balance: Account balance after this transaction - just the number without currency symbol
+Required fields per transaction:
+- date: Transaction date (YYYY-MM-DD preferred)
+- narration: Description/details 
+- debit_amount: Debit amount (number only, null if none)
+- credit_amount: Credit amount (number only, null if none)
+- running_balance: Balance after transaction (number only)
 
-            Return the data as a JSON array of transaction objects. If a field is not present or not applicable, use null for amounts and empty string for text fields.
+Return only valid JSON array. Include all visible transactions in chronological order."""
 
-            Important guidelines:
-            - Extract ALL visible transactions from the statement
-            - Be precise with amounts - include decimals if shown
-            - If amount columns are unclear, make best judgment based on typical bank statement format
-            - For narration, include the full description but clean up any OCR artifacts
-            - Maintain chronological order as shown in the statement
-            - If no transactions are visible, return an empty array
-
-            Respond only with valid JSON - no additional text or explanation.
-            """
-
-            # Generate content with image analysis
+            # Optimize image before processing
+            optimized_image_bytes = self._optimize_image(image_bytes)
+            
+            # Generate content with image analysis using faster model
             response = self.client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-2.5-flash",
                 contents=[
                     types.Part.from_bytes(
-                        data=image_bytes,
+                        data=optimized_image_bytes,
                         mime_type="image/png",
                     ),
                     prompt
@@ -216,3 +209,47 @@ class TransactionExtractor:
                     raise e
                     
         return []
+
+    def _optimize_image(self, image_bytes: bytes) -> bytes:
+        """
+        Optimize image for faster AI processing while maintaining accuracy.
+        
+        Args:
+            image_bytes: Original image bytes
+            
+        Returns:
+            Optimized image bytes
+        """
+        try:
+            # Open the image
+            image = Image.open(io.BytesIO(image_bytes))
+            
+            # Convert to RGB if needed (for consistent processing)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # Get original dimensions
+            width, height = image.size
+            
+            # Calculate optimal size (max 2048px on longer side for good balance of speed/accuracy)
+            max_dimension = 2048
+            if max(width, height) > max_dimension:
+                if width > height:
+                    new_width = max_dimension
+                    new_height = int(height * (max_dimension / width))
+                else:
+                    new_height = max_dimension
+                    new_width = int(width * (max_dimension / height))
+                
+                # Resize with high-quality resampling
+                image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                logger.info(f"Resized image from {width}x{height} to {new_width}x{new_height}")
+            
+            # Save optimized image to bytes
+            output_bytes = io.BytesIO()
+            image.save(output_bytes, format='PNG', optimize=True)
+            return output_bytes.getvalue()
+            
+        except Exception as e:
+            logger.warning(f"Image optimization failed: {e}. Using original image.")
+            return image_bytes
