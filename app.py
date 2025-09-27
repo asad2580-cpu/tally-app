@@ -77,7 +77,7 @@ def main():
     
     # Global Configuration Section
     st.subheader("⚙️ Company Configuration")
-    col_config1, col_config2, col_config3 = st.columns(3)
+    col_config1, col_config2 = st.columns(2)
     
     with col_config1:
         company_name = st.text_input(
@@ -100,21 +100,12 @@ def main():
             help="Required for accurate GST bifurcation (CGST+SGST vs IGST)"
         )
     
-    with col_config3:
-        bank_ledger_name = st.text_input(
-            "Bank Ledger Name", 
-            placeholder="e.g., HDFC Bank, SBI Current Account",
-            help="Name of the bank account ledger in your Tally (for bank statements)"
-        )
-    
     # Show configuration status
     config_status = []
     if company_name:
         config_status.append(f"Company: {company_name}")
     if company_state:
         config_status.append(f"State: {company_state}")
-    if bank_ledger_name:
-        config_status.append(f"Bank: {bank_ledger_name}")
     
     if config_status:
         st.success(f"✅ Configuration: {' | '.join(config_status)}")
@@ -127,7 +118,7 @@ def main():
     tab_bank, tab_invoice, tab_gst = st.tabs(["🏦 Bank Statements", "📄 Invoices", "📊 GST Returns"])
     
     with tab_bank:
-        process_bank_statements(company_name, bank_ledger_name)
+        process_bank_statements(company_name)
     
     with tab_invoice:
         process_invoices(company_name, company_state)
@@ -135,10 +126,26 @@ def main():
     with tab_gst:
         process_gst_returns(company_name, company_state)
 
-def process_bank_statements(company_name: str, bank_ledger_name: str):
+def process_bank_statements(company_name: str):
     """Handle bank statement processing."""
     st.subheader("🏦 Bank Statement Processing")
     st.markdown("Upload bank statement images/PDFs to extract transaction data and generate Tally XML")
+    
+    # Bank Account Configuration
+    st.subheader("💰 Bank Account Configuration")
+    bank_ledger_name = st.text_input(
+        "Bank Ledger Name", 
+        placeholder="e.g., HDFC Bank, SBI Current Account",
+        help="Name of the bank account ledger in your Tally (required for XML generation)",
+        key="bank_ledger_input"
+    )
+    
+    if bank_ledger_name:
+        st.success(f"✅ Bank Account: {bank_ledger_name}")
+    else:
+        st.info("💡 Please enter your bank ledger name to proceed with Tally XML generation")
+    
+    st.divider()
     
     # File uploader
     uploaded_file = st.file_uploader(
