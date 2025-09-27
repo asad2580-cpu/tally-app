@@ -85,13 +85,15 @@ class TallyXMLGenerator:
         credit_amount = self._parse_amount(transaction.get('credit_amount'))
         
         if credit_amount > 0:
+            # Money came into bank (Receipt) - Debit bank account
             voucher_type = "Receipt"
-            bank_amount = credit_amount
-            suspense_amount = -credit_amount
+            transaction_amount = credit_amount
+            bank_is_debit = True  # Money coming in = debit bank
         elif debit_amount > 0:
+            # Money went out of bank (Payment) - Credit bank account  
             voucher_type = "Payment"
-            bank_amount = -debit_amount
-            suspense_amount = debit_amount
+            transaction_amount = debit_amount
+            bank_is_debit = False  # Money going out = credit bank
         else:
             # Skip transactions with no amount
             return
@@ -110,14 +112,14 @@ class TallyXMLGenerator:
         # Bank ledger entry
         bank_entry = ET.SubElement(voucher, "ALLLEDGERENTRIES.LIST")
         ET.SubElement(bank_entry, "LEDGERNAME").text = self.bank_ledger_name
-        ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "No" if bank_amount > 0 else "Yes"
-        ET.SubElement(bank_entry, "AMOUNT").text = f"{bank_amount:.2f}"
+        ET.SubElement(bank_entry, "ISDEEMEDPOSITIVE").text = "No" if bank_is_debit else "Yes"
+        ET.SubElement(bank_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
         
-        # Suspense ledger entry
+        # Suspense ledger entry (opposite of bank)
         suspense_entry = ET.SubElement(voucher, "ALLLEDGERENTRIES.LIST")
         ET.SubElement(suspense_entry, "LEDGERNAME").text = self.suspense_ledger_name
-        ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "No" if suspense_amount > 0 else "Yes"
-        ET.SubElement(suspense_entry, "AMOUNT").text = f"{suspense_amount:.2f}"
+        ET.SubElement(suspense_entry, "ISDEEMEDPOSITIVE").text = "Yes" if bank_is_debit else "No"
+        ET.SubElement(suspense_entry, "AMOUNT").text = f"{transaction_amount:.2f}"
     
     def _parse_amount(self, amount_str: Any) -> float:
         """Parse amount string to float."""

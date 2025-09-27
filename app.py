@@ -3,6 +3,7 @@ import json
 import os
 from PIL import Image
 import io
+from pdf2image import convert_from_bytes
 from transaction_extractor import TransactionExtractor
 from tally_xml_generator import TallyXMLGenerator
 from gst_processor import GSTProcessor
@@ -13,6 +14,51 @@ st.set_page_config(
     page_icon="🏛️",
     layout="wide"
 )
+
+def convert_file_to_png_bytes(uploaded_file) -> bytes:
+    """
+    Convert uploaded file (PNG, JPG, JPEG, PDF) to PNG bytes.
+    
+    Args:
+        uploaded_file: Streamlit UploadedFile object
+        
+    Returns:
+        PNG image bytes
+    """
+    file_bytes = uploaded_file.read()
+    file_extension = uploaded_file.name.lower().split('.')[-1]
+    
+    try:
+        if file_extension == 'pdf':
+            # Convert PDF to images (take first page)
+            images = convert_from_bytes(file_bytes, first_page=1, last_page=1, dpi=200)
+            if images:
+                # Convert PIL Image to PNG bytes
+                img_bytes = io.BytesIO()
+                images[0].save(img_bytes, format='PNG')
+                return img_bytes.getvalue()
+            else:
+                raise ValueError("No images found in PDF")
+        
+        elif file_extension in ['jpg', 'jpeg']:
+            # Convert JPG/JPEG to PNG
+            image = Image.open(io.BytesIO(file_bytes))
+            # Convert to RGB if needed (JPEG can be in different modes)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            img_bytes = io.BytesIO()
+            image.save(img_bytes, format='PNG')
+            return img_bytes.getvalue()
+        
+        elif file_extension == 'png':
+            # Already PNG, return as-is
+            return file_bytes
+        
+        else:
+            raise ValueError(f"Unsupported file format: {file_extension}")
+            
+    except Exception as e:
+        raise Exception(f"Error converting {file_extension.upper()} file: {str(e)}")
 
 # Initialize the transaction extractor
 @st.cache_resource
@@ -92,31 +138,40 @@ def main():
 def process_bank_statements(company_name: str, bank_ledger_name: str):
     """Handle bank statement processing."""
     st.subheader("🏦 Bank Statement Processing")
-    st.markdown("Upload bank statement images (PNG) to extract transaction data and generate Tally XML")
+    st.markdown("Upload bank statement images/PDFs to extract transaction data and generate Tally XML")
     
     # File uploader
     uploaded_file = st.file_uploader(
-        "Choose a PNG bank statement image",
-        type=['png'],
-        help="Upload a clear image of your bank statement in PNG format",
+        "Choose a bank statement file",
+        type=['png', 'jpg', 'jpeg', 'pdf'],
+        help="Upload a clear image or PDF of your bank statement (PNG, JPG, JPEG, PDF formats supported)",
         key="bank_statement_uploader"
     )
     
     if uploaded_file is not None:
-        # Display uploaded image
+        # Convert file to PNG format for processing
+        try:
+            png_bytes = convert_file_to_png_bytes(uploaded_file)
+            original_format = uploaded_file.name.lower().split('.')[-1].upper()
+        except Exception as e:
+            st.error(f"Error processing file: {str(e)}")
+            return
+        
+        # Display uploaded file
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.subheader("📄 Uploaded Image")
+            st.subheader(f"📄 Uploaded {original_format} File")
             try:
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Bank Statement", use_column_width=True)
+                # Display the converted PNG image
+                display_image = Image.open(io.BytesIO(png_bytes))
+                st.image(display_image, caption=f"Bank Statement ({original_format})", use_column_width=True)
                 
-                # Image info
-                st.info(f"**Image Details:**\n- Size: {image.size[0]} x {image.size[1]} pixels\n- Format: {image.format}\n- Mode: {image.mode}")
+                # File info
+                st.info(f"**File Details:**\n- Original Format: {original_format}\n- Size: {display_image.size[0]} x {display_image.size[1]} pixels\n- Processed Format: PNG\n- Mode: {display_image.mode}")
                 
             except Exception as e:
-                st.error(f"Error loading image: {str(e)}")
+                st.error(f"Error displaying image: {str(e)}")
                 return
         
         with col2:
@@ -150,16 +205,11 @@ def process_bank_statements(company_name: str, bank_ledger_name: str):
                         status_text.text("🤖 Processing with AI...")
                         progress_bar.progress(50)
                         
-                        # Convert image to bytes
-                        img_bytes = io.BytesIO()
-                        image.save(img_bytes, format='PNG')
-                        img_bytes = img_bytes.getvalue()
-                        
                         status_text.text("📊 Extracting transaction data...")
                         progress_bar.progress(75)
                         
-                        # Extract transactions
-                        transactions = extractor.extract_transactions(img_bytes)
+                        # Extract transactions using already converted PNG bytes
+                        transactions = extractor.extract_transactions(png_bytes)
                         
                         status_text.text("✅ Complete!")
                         progress_bar.progress(100)
