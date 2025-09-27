@@ -489,120 +489,247 @@ def process_gst_returns(company_name: str, company_state: str | None):
         st.warning("⚠️ Please configure company name and state in the settings above")
         return
     
-    # GST return type selection
-    gst_return_type = st.selectbox(
-        "GST Return Type",
-        options=["GSTR2B", "GSTR2A", "GSTR1"],
-        help="Select the type of GST return JSON file"
-    )
+    # GST return type selection with separate sections
+    st.markdown("### 📥 Upload GST Return Files")
+    st.markdown("Choose the appropriate GST return type and upload your JSON file:")
     
-    # File uploader for GST returns
-    uploaded_files = st.file_uploader(
-        "Choose GST return JSON files",
-        type=['json'],
-        accept_multiple_files=True,
-        help="Upload JSON files downloaded from GST portal",
-        key="gst_return_uploader"
-    )
+    # Create separate tabs for each GST return type
+    tab_gstr1, tab_gstr2a, tab_gstr2b = st.tabs(["📤 GSTR1 (Sales)", "📥 GSTR2A (Purchase - Auto)", "📊 GSTR2B (Purchase - Static)"])
     
-    if uploaded_files:
-        st.success(f"📁 {len(uploaded_files)} JSON file(s) uploaded successfully!")
-        
-        # Initialize GST processor
-        gst_processor = GSTProcessor(company_state)
-        
-        for uploaded_file in uploaded_files:
-            with st.expander(f"📄 Processing: {uploaded_file.name}"):
-                try:
-                    # Read and parse JSON
-                    json_data = json.load(uploaded_file)
+    with tab_gstr1:
+        st.markdown("**GSTR1**: Outward supplies (Sales) - Upload JSON downloaded from GST portal")
+        gstr1_files = st.file_uploader(
+            "Choose GSTR1 JSON files",
+            type=['json'],
+            accept_multiple_files=True,
+            help="Upload GSTR1 JSON files downloaded from GST portal (Outward supplies)",
+            key="gstr1_uploader"
+        )
+        if gstr1_files:
+            process_gst_files(gstr1_files, "GSTR1", company_state)
+    
+    with tab_gstr2a:
+        st.markdown("**GSTR2A**: Auto-drafted inward supplies (Purchase) - Upload JSON downloaded from GST portal")
+        gstr2a_files = st.file_uploader(
+            "Choose GSTR2A JSON files",
+            type=['json'],
+            accept_multiple_files=True,
+            help="Upload GSTR2A JSON files downloaded from GST portal (Auto-drafted inward supplies)",
+            key="gstr2a_uploader"
+        )
+        if gstr2a_files:
+            process_gst_files(gstr2a_files, "GSTR2A", company_state)
+    
+    with tab_gstr2b:
+        st.markdown("**GSTR2B**: Static ITC statement (Purchase) - Upload JSON downloaded from GST portal")
+        gstr2b_files = st.file_uploader(
+            "Choose GSTR2B JSON files",
+            type=['json'],
+            accept_multiple_files=True,
+            help="Upload GSTR2B JSON files downloaded from GST portal (Static ITC statement)",
+            key="gstr2b_uploader"
+        )
+        if gstr2b_files:
+            process_gst_files(gstr2b_files, "GSTR2B", company_state)
+
+def process_gst_files(uploaded_files, gst_return_type, company_state):
+    """Process GST return files based on type."""
+    st.success(f"📁 {len(uploaded_files)} {gst_return_type} file(s) uploaded successfully!")
+    
+    # Initialize GST processor
+    gst_processor = GSTProcessor(company_state)
+    
+    for uploaded_file in uploaded_files:
+        with st.expander(f"📄 Processing: {uploaded_file.name}"):
+            try:
+                # Read and parse JSON
+                json_data = json.load(uploaded_file)
+                
+                # Process based on return type using updated methods
+                if gst_return_type == "GSTR1":
+                    transactions = gst_processor.process_gstr1(json_data)
+                    transaction_type_label = "Sales Transactions"
+                elif gst_return_type == "GSTR2A":
+                    transactions = gst_processor.process_gstr2a(json_data)
+                    transaction_type_label = "Purchase Transactions (Auto-drafted)"
+                elif gst_return_type == "GSTR2B":
+                    transactions = gst_processor.process_gstr2b(json_data)
+                    transaction_type_label = "Purchase Transactions (Static ITC)"
+                else:
+                    st.error(f"Unsupported GST return type: {gst_return_type}")
+                    continue
+                
+                if transactions:
+                    st.success(f"✅ Extracted {len(transactions)} {transaction_type_label.lower()}")
                     
-                    # Process based on return type
-                    if gst_return_type == "GSTR2B":
-                        transactions = gst_processor.process_gstr2b(json_data)
-                        transaction_type_label = "Purchase Transactions"
-                    elif gst_return_type == "GSTR1":
-                        transactions = gst_processor.process_gstr1(json_data)
-                        transaction_type_label = "Sales Transactions"
-                    else:  # GSTR2A
-                        st.info("GSTR2A processing similar to GSTR2B - using GSTR2B logic")
-                        transactions = gst_processor.process_gstr2b(json_data)
-                        transaction_type_label = "Purchase Transactions"
+                    # Display summary
+                    col1, col2, col3 = st.columns(3)
                     
-                    if transactions:
-                        st.success(f"✅ Extracted {len(transactions)} {transaction_type_label.lower()}")
-                        
-                        # Display summary
-                        col1, col2, col3 = st.columns(3)
-                        
-                        total_value = sum(t.invoice_value for t in transactions)
-                        total_tax = sum(t.total_tax for t in transactions)
-                        interstate_count = sum(1 for t in transactions if t.is_interstate)
-                        
-                        with col1:
-                            st.metric("Total Value", f"₹{total_value:,.2f}")
-                        with col2:
-                            st.metric("Total Tax", f"₹{total_tax:,.2f}")
-                        with col3:
-                            st.metric("Interstate Transactions", f"{interstate_count}/{len(transactions)}")
-                        
-                        # Show sample transactions
-                        st.subheader("📋 Sample Transactions")
-                        sample_data = []
-                        for t in transactions[:10]:  # Show first 10
-                            sample_data.append({
-                                "Date": t.date,
-                                "Party": t.party_name,
-                                "State": t.party_state,
-                                "Invoice": t.invoice_number,
-                                "Value": f"₹{t.invoice_value:,.2f}",
-                                "Tax": f"₹{t.total_tax:,.2f}",
-                                "Type": "Interstate" if t.is_interstate else "Local"
+                    total_value = sum(t.invoice_value for t in transactions)
+                    total_tax = sum(t.total_tax for t in transactions)
+                    interstate_count = sum(1 for t in transactions if t.is_interstate)
+                    
+                    with col1:
+                        st.metric("Total Transactions", len(transactions))
+                    with col2:
+                        st.metric("Total Value", f"₹{total_value:,.2f}")
+                    with col3:
+                        st.metric("Interstate Transactions", interstate_count)
+                    
+                    # Display transaction details in a table
+                    if len(transactions) > 0:
+                        import pandas as pd
+                        df_data = []
+                        for t in transactions:
+                            df_data.append({
+                                'Date': t.date,
+                                'Party': t.party_name,
+                                'Invoice No': t.invoice_number,
+                                'Taxable Value': f"₹{t.taxable_value:,.2f}",
+                                'IGST': f"₹{t.igst_amount:,.2f}",
+                                'CGST': f"₹{t.cgst_amount:,.2f}",
+                                'SGST': f"₹{t.sgst_amount:,.2f}",
+                                'Total Tax': f"₹{t.total_tax:,.2f}",
+                                'Invoice Value': f"₹{t.invoice_value:,.2f}",
+                                'Interstate': '✓' if t.is_interstate else '✗'
                             })
                         
-                        import pandas as pd
-                        df = pd.DataFrame(sample_data)
+                        df = pd.DataFrame(df_data)
                         st.dataframe(df, use_container_width=True)
                         
-                        if len(transactions) > 10:
-                            st.info(f"Showing first 10 of {len(transactions)} transactions")
-                        
-                        # Show ledger preview
-                        st.subheader("🏷️ Ledger Name Preview")
-                        ledger_preview = []
-                        for t in transactions[:5]:  # Show first 5
-                            main_ledger = gst_processor.generate_main_ledger_name(t)
-                            tax_ledgers = []
-                            
-                            if t.igst_amount > 0:
-                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "IGST"))
-                            if t.cgst_amount > 0:
-                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "CGST"))
-                            if t.sgst_amount > 0:
-                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "SGST"))
-                            
-                            ledger_preview.append({
-                                "Main Ledger": main_ledger,
-                                "Tax Ledgers": ", ".join(tax_ledgers),
-                                "Party": t.party_name
-                            })
-                        
-                        df_ledgers = pd.DataFrame(ledger_preview)
-                        st.dataframe(df_ledgers, use_container_width=True)
-                        
-                        # Store in session state for XML generation
-                        st.session_state[f'gst_transactions_{uploaded_file.name}'] = transactions
-                        st.session_state[f'gst_processor'] = gst_processor
-                        
-                        st.info("💡 XML generation and masters import will be available in the next update!")
-                        
-                    else:
-                        st.warning("⚠️ No transactions found in this file")
-                        
-                except json.JSONDecodeError as e:
-                    st.error(f"❌ Invalid JSON file: {str(e)}")
-                except Exception as e:
-                    st.error(f"❌ Error processing file: {str(e)}")
+                        # Download option
+                        csv = df.to_csv(index=False)
+                        st.download_button(
+                            label=f"📊 Download {gst_return_type} Data as CSV",
+                            data=csv,
+                            file_name=f"{gst_return_type}_{uploaded_file.name.replace('.json', '')}.csv",
+                            mime="text/csv"
+                        )
+                else:
+                    st.warning(f"⚠️ No transactions found in {gst_return_type} file")
+                    
+            except json.JSONDecodeError as e:
+                st.error(f"❌ Invalid JSON file: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ Error processing {gst_return_type} file: {str(e)}")
+    
+    # GST Portal Offline JSON Generator
+    st.divider()
+    st.markdown("### 🔧 GST Portal Offline Utility")
+    st.markdown("Create JSON files for uploading to GST portal (offline utility tool)")
+    
+    with st.expander("📤 Generate GSTR1 JSON for GST Portal Upload"):
+        st.markdown("**Create GSTR1 JSON file for outward supplies to upload on GST portal**")
+        
+        # Invoice entry form
+        st.subheader("Invoice Details Entry")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            customer_gstin = st.text_input("Customer GSTIN", placeholder="01ABCDE1234F1Z5")
+            invoice_number = st.text_input("Invoice Number", placeholder="INV001")
+            invoice_date = st.date_input("Invoice Date")
+        
+        with col2:
+            place_of_supply = st.selectbox("Place of Supply", 
+                options=["01-Jammu and Kashmir", "02-Himachal Pradesh", "03-Punjab", "04-Chandigarh", 
+                        "05-Uttarakhand", "06-Haryana", "07-Delhi", "08-Rajasthan", "09-Uttar Pradesh",
+                        "10-Bihar", "11-Sikkim", "12-Arunachal Pradesh", "13-Nagaland", "14-Manipur",
+                        "15-Mizoram", "16-Tripura", "17-Meghalaya", "18-Assam", "19-West Bengal",
+                        "20-Jharkhand", "21-Odisha", "22-Chhattisgarh", "23-Madhya Pradesh",
+                        "24-Gujarat", "25-Daman and Diu", "26-Dadra and Nagar Haveli", "27-Maharashtra",
+                        "28-Andhra Pradesh", "29-Karnataka", "30-Goa", "31-Lakshadweep", "32-Kerala",
+                        "33-Tamil Nadu", "34-Puducherry", "35-Andaman and Nicobar Islands", "36-Telangana",
+                        "37-Andhra Pradesh"],
+                help="Select place of supply for the transaction")
+            
+            tax_rate = st.selectbox("Tax Rate (%)", options=[0, 5, 12, 18, 28])
+            taxable_value = st.number_input("Taxable Value (₹)", min_value=0.0, format="%.2f")
+        
+        if st.button("Add to GSTR1 JSON", type="primary"):
+            if customer_gstin and invoice_number and taxable_value > 0:
+                # Create GSTR1 JSON structure
+                pos_code = place_of_supply.split('-')[0]
+                gst_processor = GSTProcessor(company_state)
+                company_state_code = next((code for state, code in gst_processor.state_codes.items() if state == company_state), "27")
+                
+                # Calculate tax amounts
+                is_interstate = pos_code != company_state_code
+                if is_interstate:
+                    igst_amount = (taxable_value * tax_rate) / 100
+                    cgst_amount = 0
+                    sgst_amount = 0
+                else:
+                    igst_amount = 0
+                    cgst_amount = (taxable_value * tax_rate) / 200  # Half of total tax
+                    sgst_amount = (taxable_value * tax_rate) / 200  # Half of total tax
+                
+                total_value = taxable_value + igst_amount + cgst_amount + sgst_amount
+                
+                gstr1_json = {
+                    "version": "GST1.1",
+                    "hash": "auto_generated_hash",
+                    "gstin": f"{company_state_code}ABCDE1234F1Z5",  # Placeholder GSTIN
+                    "fp": invoice_date.strftime("%m%Y"),
+                    "b2b": [
+                        {
+                            "ctin": customer_gstin,
+                            "inv": [
+                                {
+                                    "inum": invoice_number,
+                                    "idt": invoice_date.strftime("%d-%m-%Y"),
+                                    "val": round(total_value, 2),
+                                    "pos": pos_code,
+                                    "rchrg": "N",
+                                    "etin": "",
+                                    "inv_typ": "R",
+                                    "itms": [
+                                        {
+                                            "num": 1,
+                                            "itm_det": {
+                                                "rt": tax_rate,
+                                                "txval": round(taxable_value, 2),
+                                                "iamt": round(igst_amount, 2),
+                                                "camt": round(cgst_amount, 2),
+                                                "samt": round(sgst_amount, 2),
+                                                "csamt": 0
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "b2cs": [],
+                    "hsn": [],
+                    "doc_issue": {}
+                }
+                
+                st.success("✅ GSTR1 JSON created successfully!")
+                
+                # Display JSON preview
+                st.subheader("📄 Generated JSON Preview")
+                st.code(json.dumps(gstr1_json, indent=2), language="json")
+                
+                # Download button
+                json_str = json.dumps(gstr1_json, indent=2)
+                st.download_button(
+                    label="📥 Download GSTR1 JSON for GST Portal",
+                    data=json_str,
+                    file_name=f"GSTR1_{invoice_date.strftime('%m%Y')}_{invoice_number}.json",
+                    mime="application/json"
+                )
+                
+                st.info("""
+                **How to use this JSON file:**
+                1. Download the JSON file
+                2. Login to GST Portal → Returns Dashboard
+                3. Select GSTR-1 → Upload JSON File
+                4. Browse and select this downloaded file
+                5. Review and submit your return
+                """)
+            else:
+                st.error("⚠️ Please fill all required fields with valid data")
     
     # Instructions
     with st.expander("📖 How to use GST Return Processing"):
