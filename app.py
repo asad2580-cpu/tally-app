@@ -5,6 +5,7 @@ from PIL import Image
 import io
 from transaction_extractor import TransactionExtractor
 from tally_xml_generator import TallyXMLGenerator
+from gst_processor import GSTProcessor
 
 # Set page configuration
 st.set_page_config(
@@ -448,30 +449,125 @@ def process_gst_returns(company_name: str, company_state: str | None):
     )
     
     if uploaded_files:
-        st.info(f"📁 {len(uploaded_files)} JSON file(s) uploaded. Processing will be available soon.")
+        st.success(f"📁 {len(uploaded_files)} JSON file(s) uploaded successfully!")
         
-        # Placeholder for GST processing
-        with st.expander("🔮 Coming Soon - GST Return Processing Features"):
-            st.markdown("""
-            **Planned Features:**
-            - ⚡ Ultra-fast JSON parsing (milliseconds vs seconds)
-            - 📈 Bulk transaction processing (hundreds at once)
-            - 🏢 Automatic vendor/customer master creation
-            - 💰 Accurate GST ledger mapping
-            - 📊 Purchase/Sales voucher generation
-            - 🔄 Complete masters import XML
-            - 📝 Government-validated data accuracy
-            """)
+        # Initialize GST processor
+        gst_processor = GSTProcessor(company_state)
+        
+        for uploaded_file in uploaded_files:
+            with st.expander(f"📄 Processing: {uploaded_file.name}"):
+                try:
+                    # Read and parse JSON
+                    json_data = json.load(uploaded_file)
+                    
+                    # Process based on return type
+                    if gst_return_type == "GSTR2B":
+                        transactions = gst_processor.process_gstr2b(json_data)
+                        transaction_type_label = "Purchase Transactions"
+                    elif gst_return_type == "GSTR1":
+                        transactions = gst_processor.process_gstr1(json_data)
+                        transaction_type_label = "Sales Transactions"
+                    else:  # GSTR2A
+                        st.info("GSTR2A processing similar to GSTR2B - using GSTR2B logic")
+                        transactions = gst_processor.process_gstr2b(json_data)
+                        transaction_type_label = "Purchase Transactions"
+                    
+                    if transactions:
+                        st.success(f"✅ Extracted {len(transactions)} {transaction_type_label.lower()}")
+                        
+                        # Display summary
+                        col1, col2, col3 = st.columns(3)
+                        
+                        total_value = sum(t.invoice_value for t in transactions)
+                        total_tax = sum(t.total_tax for t in transactions)
+                        interstate_count = sum(1 for t in transactions if t.is_interstate)
+                        
+                        with col1:
+                            st.metric("Total Value", f"₹{total_value:,.2f}")
+                        with col2:
+                            st.metric("Total Tax", f"₹{total_tax:,.2f}")
+                        with col3:
+                            st.metric("Interstate Transactions", f"{interstate_count}/{len(transactions)}")
+                        
+                        # Show sample transactions
+                        st.subheader("📋 Sample Transactions")
+                        sample_data = []
+                        for t in transactions[:10]:  # Show first 10
+                            sample_data.append({
+                                "Date": t.date,
+                                "Party": t.party_name,
+                                "State": t.party_state,
+                                "Invoice": t.invoice_number,
+                                "Value": f"₹{t.invoice_value:,.2f}",
+                                "Tax": f"₹{t.total_tax:,.2f}",
+                                "Type": "Interstate" if t.is_interstate else "Local"
+                            })
+                        
+                        import pandas as pd
+                        df = pd.DataFrame(sample_data)
+                        st.dataframe(df, use_container_width=True)
+                        
+                        if len(transactions) > 10:
+                            st.info(f"Showing first 10 of {len(transactions)} transactions")
+                        
+                        # Show ledger preview
+                        st.subheader("🏷️ Ledger Name Preview")
+                        ledger_preview = []
+                        for t in transactions[:5]:  # Show first 5
+                            main_ledger = gst_processor.generate_main_ledger_name(t)
+                            tax_ledgers = []
+                            
+                            if t.igst_amount > 0:
+                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "IGST"))
+                            if t.cgst_amount > 0:
+                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "CGST"))
+                            if t.sgst_amount > 0:
+                                tax_ledgers.append(gst_processor.generate_ledger_name(t, "SGST"))
+                            
+                            ledger_preview.append({
+                                "Main Ledger": main_ledger,
+                                "Tax Ledgers": ", ".join(tax_ledgers),
+                                "Party": t.party_name
+                            })
+                        
+                        df_ledgers = pd.DataFrame(ledger_preview)
+                        st.dataframe(df_ledgers, use_container_width=True)
+                        
+                        # Store in session state for XML generation
+                        st.session_state[f'gst_transactions_{uploaded_file.name}'] = transactions
+                        st.session_state[f'gst_processor'] = gst_processor
+                        
+                        st.info("💡 XML generation and masters import will be available in the next update!")
+                        
+                    else:
+                        st.warning("⚠️ No transactions found in this file")
+                        
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ Invalid JSON file: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error processing file: {str(e)}")
     
     # Instructions
     with st.expander("📖 How to use GST Return Processing"):
         st.markdown("""
-        ### Coming Soon:
-        - Process GSTR2B for purchase data
-        - Process GSTR2A for input tax credit
-        - Process GSTR1 for sales data
-        - Lightning-fast bulk import capability
-        - Automatic ledger and master creation
+        ### Features:
+        - ⚡ **Ultra-fast processing**: JSON parsing in milliseconds
+        - 📊 **Bulk transactions**: Process hundreds of transactions at once
+        - 🧠 **Smart ledger naming**: "Input IGST 18%", "Local Purchase 28%"
+        - 🏢 **Auto party creation**: Extract vendor/customer from GSTIN
+        - 🗺️ **State-based logic**: Automatic CGST+SGST vs IGST determination
+        
+        ### How to use:
+        1. Download JSON files from GST portal (GSTR2B/1/2A)
+        2. Select the correct return type above
+        3. Upload the JSON files
+        4. Review the extracted transactions and ledger names
+        5. XML generation coming soon!
+        
+        ### Supported Returns:
+        - **GSTR2B**: Purchase transactions with input tax credit
+        - **GSTR1**: Sales transactions with output tax
+        - **GSTR2A**: Purchase transactions (auto-matched)
         """)
 
 if __name__ == "__main__":
